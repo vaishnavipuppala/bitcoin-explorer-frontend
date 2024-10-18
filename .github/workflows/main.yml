@@ -20,48 +20,48 @@ jobs:
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-    - name: Identify Linux Distribution
+    - name: Prepare and execute remote script
       run: |
-        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-          echo 'Linux Distribution:' &&
-          cat /etc/*release
-        "
+        cat << EOF > setup_docker.sh
+        #!/bin/bash
+        set -e
 
-    - name: Install Docker
-      run: |
-        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-          if [ -f /etc/os-release ]; then
-            . /etc/os-release
-            case $ID in
-              ubuntu|debian)
-                sudo apt-get update
-                sudo apt-get install -y docker.io
-                ;;
-              centos|rhel|fedora)
-                sudo yum install -y yum-utils
-                sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-                sudo yum install -y docker-ce docker-ce-cli containerd.io
-                ;;
-              *)
-                echo 'Unsupported distribution'
-                exit 1
-                ;;
-            esac
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            sudo usermod -aG docker $USER
-          else
-            echo 'Cannot identify the Linux distribution'
-            exit 1
-          fi
-        "
+        echo "Identifying Linux Distribution..."
+        if [ -f /etc/os-release ]; then
+          . /etc/os-release
+          echo "Distribution: $ID"
+          case $ID in
+            ubuntu|debian)
+              sudo apt-get update
+              sudo apt-get install -y docker.io
+              ;;
+            centos|rhel|fedora)
+              sudo yum install -y yum-utils
+              sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+              sudo yum install -y docker-ce docker-ce-cli containerd.io
+              ;;
+            *)
+              echo "Unsupported distribution: $ID"
+              exit 1
+              ;;
+          esac
+          sudo systemctl start docker
+          sudo systemctl enable docker
+          sudo usermod -aG docker $USER
+        else
+          echo "Cannot identify the Linux distribution"
+          exit 1
+        fi
 
-    - name: Install Docker Compose
-      run: |
-        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-          sudo curl -L 'https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)' -o /usr/local/bin/docker-compose
-          sudo chmod +x /usr/local/bin/docker-compose
-        "
+        echo "Installing Docker Compose..."
+        sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+
+        echo "Docker and Docker Compose installation completed."
+        EOF
+
+        scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no setup_docker.sh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/setup_docker.sh
+        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "bash ~/setup_docker.sh"
 
     - name: Log in to Docker Hub
       run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
