@@ -1,3 +1,4 @@
+
 name: Build and Deploy to EC2
 
 on:
@@ -30,13 +31,20 @@ jobs:
             sudo yum install -y docker &&
             sudo systemctl start docker &&
             sudo systemctl enable docker &&
-            sudo usermod -aG docker $USER &&
             echo 'Docker installed successfully.'
           else
             echo 'Docker is already installed.'
           fi &&
           docker --version &&
-          sudo systemctl status docker
+          sudo systemctl status docker &&
+          
+          # Add current user to docker group if it exists
+          if getent group docker > /dev/null 2>&1; then
+            sudo usermod -aG docker $USER
+            echo 'Added current user to docker group.'
+          else
+            echo 'Docker group does not exist. Skipping user addition.'
+          fi
         "
 
     - name: Install Docker Compose
