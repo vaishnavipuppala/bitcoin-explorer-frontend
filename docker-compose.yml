@@ -1,10 +1,10 @@
 services:
   backend:
-    image: souvikdinda/bitcoin-explorer-backend:latest
+    image: nagavaishnavi16/bitcoin-explorer-backend:latest
     platform: linux/amd64
     environment:
       - DATABASE_URL=postgresql://postgres:123456@postgres/bitcoin_explorer
-      - BITCOIN_RPC_USER=souvikdinda
+      - BITCOIN_RPC_USER=vaishnavi
       - BITCOIN_RPC_PASSWORD=123456
       - BITCOIN_RPC_URL=http://bitcoin-core:8332
     ports:
@@ -17,10 +17,10 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: souvikdinda/bitcoin-explorer-frontend:latest
+    image: nagavaishnavi16/bitcoin-explorer-frontend:latest
     platform: linux/amd64
     environment:
-      - REACT_APP_BACKEND_API_URL=https://bitcoin-explorer.souvikdinda.com:8000
+      - REACT_APP_BACKEND_API_URL=http://34.216.190.26:8000
       - PORT=3000
     ports:
       - "3000:80"
