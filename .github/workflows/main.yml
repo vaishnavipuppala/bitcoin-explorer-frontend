@@ -8,49 +8,46 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Check Docker installation on EC2
+      run: |
+        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+          echo 'Checking Docker installation...' &&
+          which docker || echo 'Docker not found' &&
+          docker --version || echo 'Docker version command failed' &&
+          sudo systemctl status docker || echo 'Docker service status check failed'
+        "
+
     - name: Log in to Docker Hub
       run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      
     - name: Build Docker image
       run: |
-        docker build -t ${{ secrets.DOCKER_USERNAME }}/bitcoin-explorer-frontend:latest .
-
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/bitcoin-explorer-backend:latest .
 
     - name: Push Docker image to Docker Hub
       run: |
-        docker push ${{ secrets.DOCKER_USERNAME }}/bitcoin-explorer-frontend:latest
+        docker push ${{ secrets.DOCKER_USERNAME }}/bitcoin-explorer-backend:latest
 
-    - name: Set up SSH agent
-      uses: webfactory/ssh-agent@v0.5.3
-      with:
-        ssh-private-key: ${{ secrets.SSH_KEY }}
-
-    - name: Log in to Docker Hub on EC2
+    - name: Deploy to EC2
       run: |
-        ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-          echo '${{ secrets.DOCKER_PASSWORD}}' | docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin
-        "
-    
-
-    - name: Change ownership of bitcoin conf file
-      run: |
-        ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-          sudo chown ${{ secrets.SSH_USER }}:${{ secrets.SSH_USER }} /home/${{ secrets.SSH_USER }}/bitcoin-explorer/bitcoin.conf
-        "
-
-    - name: Copy Docker Compose file to EC2
-      run: |
-        scp -o StrictHostKeyChecking=no docker-compose.yml bitcoin.conf ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/bitcoin-explorer/
-
-    - name: Deploy Docker Compose to EC2
-      run: |
-        ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+          sudo yum update -y &&
+          sudo amazon-linux-extras install docker -y &&
+          sudo service docker start &&
+          sudo usermod -a -G docker ec2-user &&
+          echo '${{ secrets.DOCKER_PASSWORD }}' | docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin &&
           cd /home/${{ secrets.SSH_USER }}/bitcoin-explorer &&
           docker-compose down &&
           docker-compose pull &&
