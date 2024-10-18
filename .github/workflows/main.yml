@@ -1,83 +1,50 @@
-
 name: Build and Deploy to EC2
-
 on:
   push:
     branches:
       - main
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-
-    - name: Setup SSH
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-
-    - name: Check and Install Docker on EC2
-      run: |
-        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-          echo 'Checking Docker installation...' &&
-          if ! command -v docker &> /dev/null; then
-            echo 'Docker not found. Installing Docker...' &&
-            sudo yum update -y &&
-            sudo yum install -y docker &&
-            sudo systemctl start docker &&
-            sudo systemctl enable docker &&
-            echo 'Docker installed successfully.'
-          else
-            echo 'Docker is already installed.'
-          fi &&
-          docker --version &&
-          sudo systemctl status docker &&
-          
-          # Add current user to docker group if it exists
-          if getent group docker > /dev/null 2>&1; then
-            sudo usermod -aG docker $USER
-            echo 'Added current user to docker group.'
-          else
-            echo 'Docker group does not exist. Skipping user addition.'
-          fi
-        "
-
-    - name: Install Docker Compose
-      run: |
-        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-          if ! command -v docker-compose &> /dev/null; then
-            echo 'Installing Docker Compose...' &&
-            sudo curl -L \"https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)\" -o /usr/local/bin/docker-compose &&
-            sudo chmod +x /usr/local/bin/docker-compose &&
-            echo 'Docker Compose installed successfully.'
-          else
-            echo 'Docker Compose is already installed.'
-          fi &&
-          docker-compose --version
-        "
-
     - name: Log in to Docker Hub
-      run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-
+      run: echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
     - name: Build Docker image
       run: |
-        docker build -t ${{ secrets.DOCKER_USERNAME }}/bitcoin-explorer-backend:latest .
-
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/bitcoin-explorer-frontend:latest .
     - name: Push Docker image to Docker Hub
       run: |
-        docker push ${{ secrets.DOCKER_USERNAME }}/bitcoin-explorer-backend:latest
-
-    - name: Deploy to EC2
+        docker push ${{ secrets.DOCKER_USERNAME }}/bitcoin-explorer-frontend:latest
+    - name: Set up SSH agent
+      uses: webfactory/ssh-agent@v0.5.3
+      with:
+        ssh-private-key: ${{ secrets.SSH_KEY }}
+    - name: Log in to Docker Hub on EC2
       run: |
-        ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
-          echo '${{ secrets.DOCKER_PASSWORD }}' | docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin &&
-          cd /home/${{ secrets.SSH_USER }}/bitcoin-explorer &&
-          docker-compose down &&
-          docker-compose pull &&
-          docker-compose up -d --build
+        ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+          echo '${{ secrets.DOCKER_TOKEN }}' | docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin
+        "
+    - name: Create bitcoin-explorer directory
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+          mkdir -p /home/${{ secrets.SSH_USER }}/bitcoin-explorer
+        "
+    - name: Change ownership of bitcoin conf file
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+          sudo chown ${{ secrets.SSH_USER }}:${{ secrets.SSH_USER }} /home/${{ secrets.SSH_USER }}/bitcoin-explorer/bitcoin.conf || echo 'bitcoin.conf not found or ownership change not necessary'
+        "
+    - name: Copy Docker Compose file to EC2
+      run: |
+        scp -o StrictHostKeyChecking=no docker-compose.yml bitcoin.conf ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USER }}/bitcoin-explorer/
+    - name: Deploy Docker Compose to EC2
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+          set -e
+          cd /home/${{ secrets.SSH_USER }}/bitcoin-explorer || (echo 'Failed to change directory' && exit 1)
+          docker-compose down || echo 'docker-compose down failed or not necessary'
+          docker-compose pull || (echo 'docker-compose pull failed' && exit 1)
+          docker-compose up -d --build || (echo 'docker-compose up failed' && exit 1)
         "
