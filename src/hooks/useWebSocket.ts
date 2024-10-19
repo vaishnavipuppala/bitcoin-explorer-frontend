@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import io from 'socket.io-client';
 import { BlockMetrics } from '../types';
 
-const SOCKET_SERVER_URL = 'http://localhost:8000';
+// Use an environment variable or a configuration file for this URL
+const BACKEND_URL = process.env.REACT_APP_BACKEND_API_URL || 'http://34.210.188.43:8000';
 
 export const useWebSocket = () => {
   const [latestMetrics, setLatestMetrics] = useState<BlockMetrics | null>(null);
 
   useEffect(() => {
-    const socket = io(SOCKET_SERVER_URL);
+    const socket = io(BACKEND_URL);
 
     socket.on('metrics_update', (data: BlockMetrics) => {
       setLatestMetrics(data);
